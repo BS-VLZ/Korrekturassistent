@@ -1,0 +1,186 @@
+from __future__ import annotations
+
+import json
+import threading
+from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
+
+from .app import KorrekturApp
+from .source_text import extract_source_text
+from .agent_profile import load_profile, save_profile, profile_path
+
+
+class ProjektApp(KorrekturApp):
+    def __init__(self) -> None:
+        self.attachments = {"aufgabenstellung": "", "erwartungshorizont": ""}
+        self.attachment_text = {"aufgabenstellung": "", "erwartungshorizont": ""}
+        self.chat_log: list[tuple[str, str]] = []
+        super().__init__()
+
+    def _build(self) -> None:
+        super()._build()
+        self.layout.forget(self.sidebar)
+        menu = __import__("tkinter").Menu(self)
+        file_menu = __import__("tkinter").Menu(menu, tearoff=False)
+        file_menu.add_command(label="Neues Klausurprojekt ...", command=self.new_project)
+        file_menu.add_command(label="OCR-PDFs laden ...", command=self.add_scans)
+        file_menu.add_separator()
+        file_menu.add_command(label="Projektdatei öffnen ...", command=self.open_project_file)
+        file_menu.add_command(label="Projektdatei speichern unter ...", command=self.save_project_file)
+        file_menu.add_command(label="Projekt beenden und archivieren", command=self.archive_project)
+        menu.add_cascade(label="Datei", menu=file_menu)
+        settings_menu = __import__("tkinter").Menu(menu, tearoff=False)
+        settings_menu.add_command(label="Agentenauftrag und Verhalten ...", command=self.edit_agent_profile)
+        menu.add_cascade(label="Optionen", menu=settings_menu)
+        self.configure(menu=menu)
+        line = ttk.Frame(self.project_tab)
+        line.pack(fill="x", before=self.project_details)
+        ttk.Button(line, text="Aufgabenstellung aus Word/PDF verknüpfen", command=lambda: self.choose_attachment("aufgabenstellung")).pack(side="left")
+        ttk.Button(line, text="Erwartungshorizont aus Word/PDF verknüpfen", command=lambda: self.choose_attachment("erwartungshorizont")).pack(side="left", padx=8)
+        ttk.Button(line, text="Verknüpfungen entfernen", command=self.clear_attachments).pack(side="left")
+        model_line = ttk.Frame(self.chat_tab)
+        model_line.pack(fill="x", before=self.chat_history)
+        ttk.Label(model_line, text="Modell für Korrektur und Diskussion:").pack(side="left")
+        self.model = ttk.Combobox(model_line, state="readonly", values=("Standard", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.6-luna"), width=18)
+        self.model.set("Standard")
+        self.model.pack(side="left", padx=8)
+
+    def edit_agent_profile(self) -> None:
+        dialog = __import__("tkinter").Toplevel(self)
+        dialog.title("Agentenauftrag und Verhalten")
+        dialog.geometry("820x620")
+        ttk.Label(dialog, text="Diese Vorgaben gelten für Chat und Korrekturvorschläge. Sie werden lokal in agent.md gespeichert.", wraplength=760).pack(anchor="w", padx=12, pady=(12, 6))
+        editor = __import__("tkinter").Text(dialog, wrap="word")
+        editor.pack(fill="both", expand=True, padx=12, pady=(0, 10))
+        editor.insert("1.0", load_profile())
+        def save() -> None:
+            save_profile(editor.get("1.0", "end"))
+            dialog.destroy()
+            messagebox.showinfo("Agentenauftrag", f"Gespeichert in {profile_path()}")
+        ttk.Button(dialog, text="Speichern", command=save).pack(anchor="e", padx=12, pady=(0, 12))
+    def clear_attachments(self) -> None:
+        if not messagebox.askyesno("Verknüpfungen entfernen", "Aufgabenstellung und Erwartungshorizont aus Word/PDF wirklich aus diesem Projekt entfernen?"):
+            return
+        self.attachments = {"aufgabenstellung": "", "erwartungshorizont": ""}
+        self.attachment_text = {"aufgabenstellung": "", "erwartungshorizont": ""}
+        messagebox.showinfo("Verknüpfungen", "Die Dateiverknüpfungen wurden entfernt. Die Originaldateien bleiben erhalten.")
+    def choose_attachment(self, kind: str) -> None:
+        path = filedialog.askopenfilename(title="Datei auswählen", filetypes=[("Word oder PDF", "*.docx *.pdf")])
+        if not path: return
+        try:
+            self.attachment_text[kind] = extract_source_text(path)
+            self.attachments[kind] = path
+            messagebox.showinfo("Verknüpfung", f"{Path(path).name} wurde ausgelesen und mit diesem Projekt verknüpft.")
+        except Exception as exc: messagebox.showerror("Datei", str(exc))
+
+    def show_project(self, project_id: int) -> None:
+        super().show_project(project_id)
+        title = self.store.project(project_id)["titel"]
+        self.header_title.configure(text=f"Korrekturassistent - {title}")
+    def save_project_file(self) -> None:
+        if self.project_id is None:
+            messagebox.showinfo("Projektdatei", "Wählen Sie zuerst ein Klausurprojekt aus.")
+            return
+        project = self.store.project(self.project_id)
+        base = Path(__file__).resolve().parents[2] / "data" / "Projekte" / "".join(char if char.isalnum() or char in " _-" else "_" for char in project["titel"])
+        base.mkdir(parents=True, exist_ok=True)
+        path = filedialog.asksaveasfilename(title="Projektdatei speichern", initialdir=base, initialfile="projekt.korrproj", defaultextension=".korrproj", filetypes=[("Korrekturprojekt", "*.korrproj")])
+        if not path: return
+        data = {"version": 1, "projekt": self.store.project(self.project_id), "scans": [{"pfad": row[1]} for row in self.store.scans(self.project_id)], "anhaenge": self.attachments, "chat": self.chat_log}
+        Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        Path(path).with_suffix(".chat.md").write_text("\n\n".join(f"## {role}\n\n{text}" for role, text in self.chat_log), encoding="utf-8")
+        messagebox.showinfo("Projektdatei", "Projektdatei und Chat-Verlauf wurden gespeichert.")
+
+    def archive_project(self) -> None:
+        if self.project_id is None:
+            messagebox.showinfo("Archiv", "Wählen Sie zuerst ein Klausurprojekt aus.")
+            return
+        project = self.store.project(self.project_id)
+        name = "".join(char if char.isalnum() or char in " _-" else "_" for char in project["titel"])
+        folder = Path(__file__).resolve().parents[2] / "data" / "Archiv" / name
+        folder.mkdir(parents=True, exist_ok=True)
+        report = [f"# Archiv {project['titel']}", "", "## Aufgaben", ""]
+        for task in project["aufgaben"]:
+            report.append(f"- Aufgabe {task['nummer']}: maximal {task['max_punkte']} Punkte, Bewertung {task['gewichtung']}")
+        report.extend(["", "## Korrekturvorschläge", ""])
+        for scan_id, path, status in self.store.scans(self.project_id):
+            report.append(f"### {Path(path).name} - {status}")
+            for task, points, reason, unclear in self.store.suggestions(scan_id):
+                report.append(f"- Aufgabe {task}: {points} Punkte - {reason}" + (f" (Prüfhinweis: {unclear})" if unclear else ""))
+        (folder / "abschlussbericht.md").write_text("\n".join(report), encoding="utf-8")
+        (folder / "chat.md").write_text("\n\n".join(f"## {role}\n\n{text}" for role, text in self.chat_log), encoding="utf-8")
+        self.chat_log = []
+        self.chat_history.configure(state="normal")
+        self.chat_history.delete("1.0", "end")
+        self.chat_history.configure(state="disabled")
+        messagebox.showinfo("Archiv", "Abschlussbericht und Chat-Verlauf wurden im Archiv gespeichert. Der laufende Chat wurde geleert.")
+    def open_project_file(self) -> None:
+        path = filedialog.askopenfilename(title="Projektdatei öffnen", filetypes=[("Korrekturprojekt", "*.korrproj")])
+        if not path: return
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        project = data["projekt"]
+        self.project_id = self.store.create_project(project["titel"], project["klausurtext"], project["aufgaben"])
+        self.attachments = data.get("anhaenge", self.attachments)
+        for kind, linked in self.attachments.items():
+            if linked and Path(linked).exists(): self.attachment_text[kind] = extract_source_text(linked)
+        for scan in data.get("scans", []):
+            if Path(scan["pfad"]).exists(): self.store.add_scan(self.project_id, scan["pfad"], __import__("korrekturassistent.ocr", fromlist=["extract_pdf_text"]).extract_pdf_text(scan["pfad"]))
+        self.chat_log = [tuple(entry) for entry in data.get("chat", [])]
+        for role, text in self.chat_log: self._add_chat(f"{role}: {text}\n\n", save=False)
+        self.refresh_projects(); self.show_project(self.project_id)
+
+    def grade(self) -> None:
+        if self.project_id is None or self.scan_id is None:
+            messagebox.showinfo("Korrekturvorschlag", "Laden Sie zuerst eine OCR-Klausur über Datei > OCR-PDFs laden und wählen Sie sie oben aus."); return
+        self.grade_button.configure(state="disabled")
+        self.result_status.configure(text="Korrekturvorschlag wird erstellt …")
+        project = self.store.project(self.project_id)
+        project["klausurtext"] += "\n\nVerknüpfte Aufgabenstellung:\n" + self.attachment_text["aufgabenstellung"] + "\n\nVerknüpfter Erwartungshorizont:\n" + self.attachment_text["erwartungshorizont"]
+        model = None if self.model.get() == "Standard" else self.model.get()
+        def work() -> None:
+            try:
+                proposal = self.provider.grade(project, self.store.scan(self.scan_id)["ocr_text"], model)
+                self.store.replace_suggestions(self.scan_id, proposal); self.after(0, self._graded)
+            except Exception as exc: self.after(0, self._error, "Korrekturvorschlag", str(exc))
+        threading.Thread(target=work, daemon=True).start()
+
+    def discuss(self) -> None:
+        question = self.chat_question.get().strip()
+        if not question:
+            return
+        if self.project_id is not None and self.scan_id is not None:
+            context_data = {"projekt": self.store.project(self.project_id), "vorschlaege": self.store.suggestions(self.scan_id)}
+        elif self.project_id is not None:
+            context_data = {"projekt": self.store.project(self.project_id), "hinweis": "Es ist noch keine einzelne Schülerklausur ausgewählt."}
+        else:
+            context_data = {"hinweis": "Allgemeine fachliche Frage ohne geöffnetes Klausurprojekt."}
+        context = json.dumps(context_data, ensure_ascii=False)
+        model = None if self.model.get() == "Standard" else self.model.get()
+        self.chat_question.delete(0, "end")
+        self._add_chat("Sie: " + question + "\n\n")
+        def work() -> None:
+            try:
+                answer = self.provider.discuss(context, question, model)
+                self.after(0, lambda: self._add_chat("Assistent: " + answer + "\n\n"))
+            except Exception as exc: self.after(0, self._error, "Diskussion", str(exc))
+        threading.Thread(target=work, daemon=True).start()
+    def _add_chat(self, text: str, save: bool = True) -> None:
+        super()._add_chat(text)
+        if save and ": " in text:
+            role, body = text.strip().split(": ", 1); self.chat_log.append((role, body))
+
+def main() -> None:
+    ProjektApp().mainloop()
+
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+
+
+
+

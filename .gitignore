@@ -1,0 +1,15 @@
+# Lokale Klausur-, Projekt- und Chatdaten
+/data/
+
+# Temporäre Dateien
+/tmp/
+__pycache__/
+*.py[cod]
+
+# Lokale Python-Umgebungen
+.venv/
+venv/
+
+# Betriebssystem und Editor
+.DS_Store
+Thumbs.db
