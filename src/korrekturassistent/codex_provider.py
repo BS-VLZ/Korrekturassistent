@@ -10,7 +10,7 @@ from pathlib import Path
 from .agent_profile import load_profile
 
 
-SYSTEM = """Sie sind ein fachlicher Korrekturassistent. Sie erstellen nur Vorschläge, keine endgültigen Noten. Bewerten Sie ausschließlich anhand des Erwartungshorizonts. Berücksichtigen Sie alternative fachlich richtige Formulierungen. OCR-Unklarheiten führen nicht zu einem Punktabzug, sondern zu einer Unsicherheit. Antworten Sie ausschließlich als JSON-Array: [{\"aufgabe\": \"...\", \"punkte\": Zahl, \"begruendung\": \"...\", \"unsicherheiten\": \"...\"}]."""
+SYSTEM = """Sie sind ein fachlicher Korrekturassistent. Sie erstellen nur Vorschläge, keine endgültigen Noten. Bewerten Sie ausschließlich anhand des Erwartungshorizonts. Berücksichtigen Sie alternative fachlich richtige Formulierungen. OCR-Unklarheiten führen nicht zu einem Punktabzug, sondern zu einer Unsicherheit. Für jeden Vorschlag geben Sie die OCR-Seite und eine kurze, exakt aus der OCR übernommene Textstelle an, an der die bewertete Antwort steht. Die Textstelle darf höchstens 18 Wörter umfassen."""
 
 
 class CodexProvider:
@@ -37,6 +37,13 @@ class CodexProvider:
         executable = self.executable()
         if not executable:
             raise RuntimeError("Codex wurde auf diesem Rechner nicht gefunden. Starten Sie Codex einmal und melden Sie sich mit 'codex login' an.")
+        path = Path(executable)
+        # codex.cmd kann unter Windows ein sichtbares Konsolenfenster öffnen. Die zugrunde liegende Node-Datei läuft unsichtbar.
+        if path.suffix.lower() == ".cmd":
+            script = path.parent / "node_modules" / "@openai" / "codex" / "bin" / "codex.js"
+            node = shutil.which("node.exe") or shutil.which("node")
+            if node and script.exists():
+                return [node, str(script), "exec", "--sandbox", "read-only"]
         return [executable, "exec", "--sandbox", "read-only"]
 
     def grade(self, project: dict, ocr_text: str, model: str | None = None) -> list[dict]:
@@ -46,18 +53,21 @@ class CodexProvider:
             "schuelerantwort": ocr_text,
         }
         prompt = load_profile() + "\n\nSpezielle Vorgabe für Korrekturvorschläge:\n" + SYSTEM + "\n\nDaten:\n" + json.dumps(payload, ensure_ascii=False)
-        schema = {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "aufgabe": {"type": "string"}, "punkte": {"type": "number"},
-                    "begruendung": {"type": "string"}, "unsicherheiten": {"type": "string"},
-                    "seite": {"type": "integer", "minimum": 1}, "textstelle": {"type": "string"},
-                },
-                "required": ["aufgabe", "punkte", "begruendung", "unsicherheiten", "seite", "textstelle"],
-                "additionalProperties": False,
+        suggestion_schema = {
+            "type": "object",
+            "properties": {
+                "aufgabe": {"type": "string"}, "punkte": {"type": "number"},
+                "begruendung": {"type": "string"}, "unsicherheiten": {"type": "string"},
+                "seite": {"type": "integer", "minimum": 1}, "textstelle": {"type": "string"},
             },
+            "required": ["aufgabe", "punkte", "begruendung", "unsicherheiten", "seite", "textstelle"],
+            "additionalProperties": False,
+        }
+        schema = {
+            "type": "object",
+            "properties": {"vorschlaege": {"type": "array", "items": suggestion_schema}},
+            "required": ["vorschlaege"],
+            "additionalProperties": False,
         }
         with tempfile.TemporaryDirectory(prefix="korrekturassistent-") as directory:
             work = Path(directory)
@@ -68,7 +78,7 @@ class CodexProvider:
             completed = subprocess.run(command, input=prompt, capture_output=True, text=True, encoding="utf-8", timeout=600, cwd=Path(__file__).resolve().parents[2], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             if completed.returncode != 0:
                 raise RuntimeError(completed.stderr.strip() or "Codex konnte keinen Korrekturvorschlag erstellen.")
-            return json.loads(output_path.read_text(encoding="utf-8"))
+            return json.loads(output_path.read_text(encoding="utf-8"))["vorschlaege"]
 
     def discuss(self, context: str, instruction: str, model: str | None = None) -> str:
         prompt = load_profile() + "\n\nVerfügbarer Kontext:\n" + context + "\n\nNachricht:\n" + instruction

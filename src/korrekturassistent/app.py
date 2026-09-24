@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -54,19 +53,17 @@ class KorrekturApp(tk.Tk):
         ttk.Button(left, text="OCR-PDFs laden", command=self.add_scans).pack(fill="x", pady=(5, 0))
         self.notebook = ttk.Notebook(right)
         self.notebook.pack(fill="both", expand=True)
-        self.project_tab, self.suggestion_tab, self.chat_tab = (ttk.Frame(self.notebook, padding=12) for _ in range(3))
+        self.project_tab, self.suggestion_tab = (ttk.Frame(self.notebook, padding=12) for _ in range(2))
         self.notebook.add(self.project_tab, text="Klausur und Erwartungshorizont")
         self.notebook.add(self.suggestion_tab, text="Korrekturvorschlag")
-        self.notebook.add(self.chat_tab, text="Diskussion")
         self._build_project_tab()
         self._build_suggestion_tab()
-        self._build_chat_tab()
 
     def _build_project_tab(self) -> None:
-        ttk.Label(self.project_tab, text="Aufgabenstellung und Punkte", font=("Segoe UI", 12, "bold")).pack(anchor="w")
-        ttk.Label(self.project_tab, text="Pro Aufgabe werden Punkte, Erwartungshorizont und die Bewertungsstufe festgelegt.").pack(anchor="w", pady=(4, 10))
-        self.project_details = tk.Text(self.project_tab, height=28, wrap="word", state="disabled")
-        self.project_details.pack(fill="both", expand=True)
+        ttk.Label(self.project_tab, text="Projektunterlagen", font=("Segoe UI", 12, "bold")).pack(anchor="w")
+        ttk.Label(self.project_tab, text="Aufgabenstellung und Erwartungshorizont sind als verknüpfte Word- oder PDF-Dateien hinterlegt. Die KI liest sie beim Erstellen des Korrekturvorschlags aus.", wraplength=1000).pack(anchor="w", pady=(4, 12))
+        self.project_details = ttk.Label(self.project_tab, text="Noch keine Projektunterlagen verknüpft.", justify="left", wraplength=1000)
+        self.project_details.pack(anchor="w", pady=(4, 0))
 
     def _build_suggestion_tab(self) -> None:
         controls = ttk.Frame(self.suggestion_tab)
@@ -77,25 +74,12 @@ class KorrekturApp(tk.Tk):
         self.scan_selector.bind("<<ComboboxSelected>>", self.select_scan_from_selector)
         self.grade_button = ttk.Button(controls, text="Korrekturvorschlag erzeugen", command=self.grade)
         self.grade_button.pack(side="left")
-        ttk.Button(controls, text="OCR-Text anzeigen", command=self.show_ocr_text).pack(side="left", padx=(8, 0))
-        ttk.Button(controls, text="Seitenansicht und Kommentare", command=self.open_review).pack(side="left", padx=(8, 0))
+        ttk.Button(controls, text="Korrekturarbeitsplatz öffnen", command=self.open_review).pack(side="left", padx=(8, 0))
         self.result_status = ttk.Label(controls, text="Wählen Sie eine geladene Klausur aus.")
         self.result_status.pack(side="left", padx=10)
         ttk.Label(self.suggestion_tab, text="Nach dem Erzeugen öffnet sich die Korrekturansicht automatisch. Dort bearbeiten und diskutieren Sie jeden einzelnen Korrekturhinweis direkt neben der PDF-Seite.", wraplength=1050).pack(anchor="w", pady=(18, 8))
         self.grade_summary = ttk.Label(self.suggestion_tab, text="Notenberechnung: Noch keine Korrekturvorschläge vorhanden.", font=("Segoe UI", 10, "bold"))
         self.grade_summary.pack(anchor="w", pady=(4, 0))
-
-    def _build_chat_tab(self) -> None:
-        ttk.Label(self.chat_tab, text="Diskussion einer Bewertung", font=("Segoe UI", 12, "bold")).pack(anchor="w")
-        ttk.Label(self.chat_tab, text="Fragen Sie nach einer alternativen fachlich richtigen Lösung oder einer begründeten Anpassung. Die Antwort ändert noch keine Punkte.", wraplength=780).pack(anchor="w", pady=(4, 10))
-        self.chat_history = tk.Text(self.chat_tab, height=25, wrap="word", state="disabled")
-        self.chat_history.pack(fill="both", expand=True)
-        entry = ttk.Frame(self.chat_tab)
-        entry.pack(fill="x", pady=(8, 0))
-        self.chat_question = ttk.Entry(entry)
-        self.chat_question.pack(side="left", fill="x", expand=True)
-        self.chat_question.bind("<Return>", lambda event: self.discuss())
-        ttk.Button(entry, text="Frage senden", command=self.discuss).pack(side="left", padx=(8, 0))
 
     def new_project(self) -> None:
         dialog = tk.Toplevel(self)
@@ -134,7 +118,6 @@ class KorrekturApp(tk.Tk):
         self.store.delete_scan(self.scan_id)
         self.scan_id = None
         self.refresh_scans(); self.show_suggestions()
-        self.after(200, self.open_review)
     def refresh_projects(self) -> None:
         self.projects.delete(0, "end")
         self.project_rows = self.store.projects()
@@ -149,12 +132,10 @@ class KorrekturApp(tk.Tk):
     def show_project(self, project_id: int) -> None:
         self.project_id = project_id
         project = self.store.project(self.project_id)
-        text = f"{project['titel']}\n\nAufgabenstellung:\n{project['klausurtext']}\n\nErwartungshorizont:\n"
-        text += "\n".join(f"{task['nummer']} – maximal {task['max_punkte']} Punkte – {task['gewichtung']}: {task['erwartung']}" for task in project["aufgaben"])
-        self.project_details.configure(state="normal")
-        self.project_details.delete("1.0", "end")
-        self.project_details.insert("1.0", text)
-        self.project_details.configure(state="disabled")
+        attachments = project.get("anhaenge", {})
+        task = Path(attachments.get("aufgabenstellung", "")).name or "nicht verknüpft"
+        horizon = Path(attachments.get("erwartungshorizont", "")).name or "nicht verknüpft"
+        self.project_details.configure(text=f"Aufgabenstellung: {task}\nErwartungshorizont: {horizon}")
         self.refresh_scans()
 
     def refresh_scans(self) -> None:
@@ -198,21 +179,11 @@ class KorrekturApp(tk.Tk):
             return
         total = sum(float(points or 0) for _task, points, _reason, _unclear in suggestions)
         maximum = sum(float(task["max_punkte"]) for task in self.store.project(self.project_id)["aufgaben"])
+        if maximum <= 0:
+            self.grade_summary.configure(text=f"Zwischenstand: {total:.1f} Punkte. Die maximale Punktzahl wird erst angezeigt, wenn sie aus dem Erwartungshorizont übernommen wurde.")
+            return
         percent, grade = ihk_note(total, maximum)
         self.grade_summary.configure(text=f"Zwischenstand: {total:.1f} von {maximum:.1f} Punkten ({percent:.1f} %) – {grade}")
-
-    def show_ocr_text(self) -> None:
-        if self.scan_id is None:
-            messagebox.showinfo("OCR-Text", "Wählen Sie zuerst eine geladene Klausur aus.")
-            return
-        dialog = tk.Toplevel(self)
-        dialog.title("OCR-Text der ausgewählten Klausur")
-        dialog.geometry("1050x760")
-        ttk.Label(dialog, text="Maschinenschriftlicher OCR-Text – bitte bei unklaren Stellen mit dem Original-PDF vergleichen.", wraplength=950).pack(anchor="w", padx=12, pady=(12, 6))
-        editor = tk.Text(dialog, wrap="word")
-        editor.pack(fill="both", expand=True, padx=12, pady=(0, 12))
-        editor.insert("1.0", self.store.scan(self.scan_id)["ocr_text"])
-        editor.configure(state="disabled")
 
     def open_review(self) -> None:
         if self.scan_id is None:
@@ -242,27 +213,6 @@ class KorrekturApp(tk.Tk):
         self.result_status.configure(text="Vorschlag erstellt – bitte fachlich prüfen.")
         self.refresh_scans(); self.show_suggestions()
         self.after(200, self.open_review)
-
-    def discuss(self) -> None:
-        question = self.chat_question.get().strip()
-        if not question or self.scan_id is None: return
-        if not self.provider.available():
-            self._error("Codex", "Codex wurde nicht gefunden. Melden Sie sich zuerst mit 'codex login' an.")
-            return
-        context = json.dumps({"projekt": self.store.project(self.project_id), "vorschlaege": self.store.suggestions(self.scan_id)}, ensure_ascii=False)
-        self.chat_question.delete(0, "end")
-        self._add_chat("Sie: " + question + "\n\n")
-        def work() -> None:
-            try:
-                answer = self.provider.discuss(context, question)
-                self.after(0, lambda: self._add_chat("Assistent: " + answer + "\n\n"))
-            except Exception as exc: self.after(0, self._error, "Diskussion", str(exc))
-        threading.Thread(target=work, daemon=True).start()
-
-    def _add_chat(self, text: str) -> None:
-        self.chat_history.configure(state="normal")
-        self.chat_history.insert("end", text); self.chat_history.see("end")
-        self.chat_history.configure(state="disabled")
 
     def _error(self, title: str, detail: str) -> None:
         self.grade_button.configure(state="normal")

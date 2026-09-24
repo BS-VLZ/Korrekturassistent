@@ -19,6 +19,9 @@ class ProjektStore:
                     erstellt_am TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(projekt)")}
+            if "anhaenge_json" not in columns:
+                conn.execute("ALTER TABLE projekt ADD COLUMN anhaenge_json TEXT NOT NULL DEFAULT '{}'")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS scan (
                     id INTEGER PRIMARY KEY,
@@ -76,10 +79,14 @@ class ProjektStore:
 
     def project(self, project_id: int) -> dict:
         with self._connect() as conn:
-            row = conn.execute("SELECT id, titel, klausurtext, aufgaben_json FROM projekt WHERE id = ?", (project_id,)).fetchone()
+            row = conn.execute("SELECT id, titel, klausurtext, aufgaben_json, anhaenge_json FROM projekt WHERE id = ?", (project_id,)).fetchone()
         if not row:
             raise KeyError(project_id)
-        return {"id": row[0], "titel": row[1], "klausurtext": row[2], "aufgaben": json.loads(row[3])}
+        return {"id": row[0], "titel": row[1], "klausurtext": row[2], "aufgaben": json.loads(row[3]), "anhaenge": json.loads(row[4] or "{}")}
+
+    def update_attachments(self, project_id: int, attachments: dict[str, str]) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE projekt SET anhaenge_json = ? WHERE id = ?", (json.dumps(attachments, ensure_ascii=False), project_id))
 
     def add_scan(self, project_id: int, path: str, text: str) -> int:
         with self._connect() as conn:

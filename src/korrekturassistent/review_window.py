@@ -4,149 +4,190 @@ import json
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import messagebox, ttk
 
-from .pdf_review import export_comment_pdf, page_count, render_page
+import fitz
+
+from .pdf_review import page_count, render_page
 
 
 class ReviewWindow(tk.Toplevel):
-    """Arbeitsbereich: eine PDF-Seite links, Korrektur und Chat rechts."""
+    """Der gesamte Korrekturarbeitsplatz: PDF links, Bearbeitung und Chat rechts."""
 
     def __init__(self, master, ocr_path: str, suggestions: list[tuple], anchors: dict[str, tuple[int | None, str]], output_folder: Path) -> None:
         super().__init__(master)
         self.title("Korrekturarbeitsplatz")
-        self.geometry("1500x950")
+        self.geometry("1540x960")
         self.ocr_path = ocr_path
         self.suggestions = suggestions
         self.anchors = anchors
         self.output_folder = output_folder
-        self.original_path: str | None = None
-        self.ocr_pages = page_count(ocr_path)
-        self.original_pages = 0
-        self.display = tk.StringVar(value="OCR-PDF")
+        self.pages = page_count(ocr_path)
         self.page = tk.IntVar(value=1)
         self.current_tasks: list[tuple] = []
-        self._images: list[tk.PhotoImage] = []
+        self.image: tk.PhotoImage | None = None
+        self._resize_after: str | None = None
         self._build()
         self.show_page()
 
     def _build(self) -> None:
-        controls = ttk.Frame(self, padding=10)
+        controls = ttk.Frame(self, padding=(12, 10))
         controls.pack(fill="x")
-        ttk.Button(controls, text="Original-PDF auswählen", command=self.choose_original).pack(side="left")
-        ttk.Radiobutton(controls, text="OCR-PDF", variable=self.display, value="OCR-PDF", command=self.show_page).pack(side="left", padx=(16, 2))
-        ttk.Radiobutton(controls, text="Original-PDF", variable=self.display, value="Original-PDF", command=self.show_page).pack(side="left")
-        ttk.Label(controls, text="Seite").pack(side="left", padx=(16, 4))
-        self.page_picker = ttk.Spinbox(controls, from_=1, to=self.ocr_pages, width=6, textvariable=self.page, command=self.show_page)
+        ttk.Button(controls, text="‹ Vorherige Seite", command=lambda: self.change_page(-1)).pack(side="left")
+        ttk.Label(controls, text="Seite").pack(side="left", padx=(14, 4))
+        self.page_picker = ttk.Spinbox(controls, from_=1, to=self.pages, width=6, textvariable=self.page, command=self.show_page)
         self.page_picker.pack(side="left")
-        ttk.Button(controls, text="Anzeigen", command=self.show_page).pack(side="left", padx=6)
-        ttk.Button(controls, text="Kommentar-PDF exportieren", command=self.export).pack(side="right")
-        self.info = ttk.Label(controls, text=f"OCR-PDF: {self.ocr_pages} Seiten")
-        self.info.pack(side="right", padx=12)
+        ttk.Label(controls, text=f"von {self.pages}").pack(side="left", padx=(4, 10))
+        ttk.Button(controls, text="Nächste Seite ›", command=lambda: self.change_page(1)).pack(side="left")
+        ttk.Label(controls, text="Markierungen verändern die Datei nicht.").pack(side="right")
 
-        content = ttk.Panedwindow(self, orient="horizontal")
-        content.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-        page_frame = ttk.Frame(content, padding=6)
-        ttk.Label(page_frame, text="PDF-Seite", font=("Segoe UI", 11, "bold")).pack(anchor="w")
-        self.page_panel = ttk.Label(page_frame, text="PDF-Seite wird geladen", anchor="center")
-        self.page_panel.pack(fill="both", expand=True)
-        content.add(page_frame, weight=3)
+        split = ttk.Panedwindow(self, orient="horizontal")
+        split.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        reader = ttk.Frame(split, padding=2)
+        split.add(reader, weight=3)
+        self.canvas = tk.Canvas(reader, background="#5e5e5e", highlightthickness=0)
+        yscroll = ttk.Scrollbar(reader, orient="vertical", command=self.canvas.yview)
+        self.canvas.configure(yscrollcommand=yscroll.set)
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        yscroll.grid(row=0, column=1, sticky="ns")
+        reader.rowconfigure(0, weight=1)
+        reader.columnconfigure(0, weight=1)
+        self.canvas.bind("<Configure>", self.resize_reader)
 
-        sidebar = ttk.Frame(content, padding=8)
-        content.add(sidebar, weight=2)
-        ttk.Label(sidebar, text="Korrekturen auf dieser Seite", font=("Segoe UI", 11, "bold")).pack(anchor="w")
-        self.corrections = tk.Listbox(sidebar, height=7, exportselection=False)
-        self.corrections.pack(fill="x", pady=(5, 8))
+        sidebar = ttk.Frame(split, padding=12)
+        split.add(sidebar, weight=2)
+        sidebar.columnconfigure(0, weight=1)
+        ttk.Label(sidebar, text="Korrekturen auf dieser Seite", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, sticky="w")
+        self.corrections = tk.Listbox(sidebar, height=6, exportselection=False)
+        self.corrections.grid(row=1, column=0, sticky="ew", pady=(5, 8))
         self.corrections.bind("<<ListboxSelect>>", self.select_correction)
-
-        self.anchor_label = ttk.Label(sidebar, text="Wählen Sie einen Korrekturhinweis aus.", wraplength=500)
-        self.anchor_label.pack(anchor="w", pady=(0, 6))
+        self.location = ttk.Label(sidebar, text="Wählen Sie eine Korrektur aus.", wraplength=470)
+        self.location.grid(row=2, column=0, sticky="ew", pady=(0, 7))
         points_line = ttk.Frame(sidebar)
-        points_line.pack(fill="x")
+        points_line.grid(row=3, column=0, sticky="ew")
         ttk.Label(points_line, text="Punkte:").pack(side="left")
         self.points = ttk.Entry(points_line, width=10)
         self.points.pack(side="left", padx=(8, 0))
-        ttk.Label(sidebar, text="Begründung:").pack(anchor="w", pady=(8, 3))
-        self.reason = tk.Text(sidebar, height=7, wrap="word")
-        self.reason.pack(fill="x")
-        ttk.Label(sidebar, text="Unsicherheiten:").pack(anchor="w", pady=(8, 3))
-        self.unclear = tk.Text(sidebar, height=4, wrap="word")
-        self.unclear.pack(fill="x")
-        ttk.Button(sidebar, text="Änderungen speichern", command=self.save_correction).pack(anchor="e", pady=(6, 12))
-
-        ttk.Separator(sidebar).pack(fill="x", pady=(0, 10))
-        ttk.Label(sidebar, text="Diskussion zur ausgewählten Korrektur", font=("Segoe UI", 11, "bold")).pack(anchor="w")
-        self.chat = tk.Text(sidebar, height=12, wrap="word", state="disabled")
-        self.chat.pack(fill="both", expand=True, pady=(5, 6))
-        chat_line = ttk.Frame(sidebar)
-        chat_line.pack(fill="x")
-        self.question = ttk.Entry(chat_line)
-        self.question.pack(side="left", fill="x", expand=True)
+        ttk.Label(sidebar, text="Begründung:").grid(row=4, column=0, sticky="w", pady=(8, 3))
+        self.reason = tk.Text(sidebar, height=5, wrap="word")
+        self.reason.grid(row=5, column=0, sticky="ew")
+        ttk.Label(sidebar, text="Unsicherheiten:").grid(row=6, column=0, sticky="w", pady=(8, 3))
+        self.unclear = tk.Text(sidebar, height=3, wrap="word")
+        self.unclear.grid(row=7, column=0, sticky="ew")
+        ttk.Button(sidebar, text="Korrektur speichern", command=self.save_correction).grid(row=8, column=0, sticky="e", pady=(6, 10))
+        ttk.Separator(sidebar).grid(row=9, column=0, sticky="ew", pady=(0, 8))
+        ttk.Label(sidebar, text="Chat zur ausgewählten Korrektur", font=("Segoe UI", 11, "bold")).grid(row=10, column=0, sticky="w")
+        self.chat = tk.Text(sidebar, height=8, wrap="word", state="disabled")
+        self.chat.grid(row=11, column=0, sticky="nsew", pady=(5, 6))
+        sidebar.rowconfigure(11, weight=1)
+        row = ttk.Frame(sidebar)
+        row.grid(row=12, column=0, sticky="ew")
+        row.columnconfigure(0, weight=1)
+        self.question = ttk.Entry(row)
+        self.question.grid(row=0, column=0, sticky="ew")
         self.question.bind("<Return>", lambda _event: self.discuss())
-        ttk.Button(chat_line, text="Senden", command=self.discuss).pack(side="left", padx=(6, 0))
+        ttk.Button(row, text="Senden", command=self.discuss).grid(row=0, column=1, padx=(6, 0))
 
-    def choose_original(self) -> None:
-        path = filedialog.askopenfilename(title="Handschriftliches Original-PDF auswählen", filetypes=[("PDF-Dateien", "*.pdf")])
-        if not path:
-            return
-        self.original_path = path
-        self.original_pages = page_count(path)
-        self.info.configure(text=f"Original: {self.original_pages} Seiten | OCR: {self.ocr_pages} Seiten")
-        self.display.set("Original-PDF")
+    def resize_reader(self, _event=None) -> None:
+        if self._resize_after is not None:
+            self.after_cancel(self._resize_after)
+        self._resize_after = self.after(180, self.show_page)
+
+    def change_page(self, delta: int) -> None:
+        self.page.set(max(1, min(self.pages, self.page.get() + delta)))
         self.show_page()
 
     def show_page(self) -> None:
         try:
-            page = max(1, min(int(self.page.get()), self.ocr_pages))
+            page_number = max(1, min(int(self.page.get()), self.pages))
         except tk.TclError:
             return
-        self.page.set(page)
-        path, label = self.ocr_path, "OCR-PDF"
-        if self.display.get() == "Original-PDF":
-            if not self.original_path:
-                self.display.set("OCR-PDF")
-            elif page <= self.original_pages:
-                path, label = self.original_path, "Original-PDF"
-            else:
-                self.page_panel.configure(image="", text="Diese Seite ist im Original-PDF nicht vorhanden.")
-                self.show_corrections(page)
-                return
-        cache = self.output_folder / "rendered"
-        image_path = render_page(path, page, cache / f"{label.lower().replace('-', '_')}-{page}.png", zoom=1.75)
-        self._set_image(image_path, f"{label} – Seite {page}")
-        self.show_corrections(page)
+        self.page.set(page_number)
+        target = self.output_folder / "rendered" / f"reader-{page_number}.png"
+        available_width = self.canvas.winfo_width()
+        document = fitz.open(self.ocr_path)
+        try:
+            page_width = document.load_page(page_number - 1).rect.width
+        finally:
+            document.close()
+        zoom = 1.2 if available_width < 250 else max(0.8, (available_width - 28) / page_width)
+        image_path = render_page(self.ocr_path, page_number, target, zoom=zoom)
+        self.image = tk.PhotoImage(file=str(image_path))
+        self.canvas.delete("all")
+        self.canvas.create_image(0, 0, anchor="nw", image=self.image)
+        self.canvas.configure(scrollregion=(0, 0, self.image.width(), self.image.height()))
+        self.show_corrections(page_number)
+        self.draw_markers(page_number)
+        self.canvas.xview_moveto(0)
+        self.canvas.yview_moveto(0)
 
-    def _set_image(self, path: Path, label: str) -> None:
-        image = tk.PhotoImage(file=str(path))
-        self._images.append(image)
-        self._images = self._images[-3:]
-        self.page_panel.configure(image=image, text=label, compound="top")
-
-    def show_corrections(self, page: int) -> None:
+    def show_corrections(self, page_number: int) -> None:
         self.current_tasks = []
         self.corrections.delete(0, "end")
         for item in self.suggestions:
-            task, points, reason, uncertain = item
+            task, points, _reason, uncertain = item
             anchor_page, _anchor = self.anchors.get(task, (None, ""))
-            if anchor_page == page or anchor_page is None:
+            if anchor_page == page_number or anchor_page is None:
                 self.current_tasks.append(item)
                 label = f"Aufgabe {task}: {points} Punkte"
-                if anchor_page is None:
-                    label += " (Seite noch offen)"
+                if uncertain:
+                    label += " · prüfen"
                 self.corrections.insert("end", label)
-        self.clear_detail()
+                index = len(self.current_tasks) - 1
+                self.corrections.itemconfig(index, foreground=self.marker_color(item))
+        self.clear_editor()
         if self.current_tasks:
             self.corrections.selection_set(0)
             self.select_correction()
 
-    def clear_detail(self) -> None:
-        self.anchor_label.configure(text="Wählen Sie einen Korrekturhinweis aus.")
-        for field in (self.points, self.reason, self.unclear):
-            field.delete("1.0", "end") if isinstance(field, tk.Text) else field.delete(0, "end")
+    def marker_color(self, item: tuple) -> str:
+        _task, points, _reason, uncertain = item
+        if uncertain:
+            return "#b36b00"
+        return "#b00020" if float(points or 0) == 0 else "#137333"
+
+    def draw_markers(self, page_number: int) -> None:
+        if not self.image:
+            return
+        document = fitz.open(self.ocr_path)
+        try:
+            page = document.load_page(page_number - 1)
+            scale_x = self.image.width() / page.rect.width
+            scale_y = self.image.height() / page.rect.height
+            for index, item in enumerate(self.current_tasks):
+                task, points, _reason, _uncertain = item
+                _anchor_page, anchor = self.anchors.get(task, (None, ""))
+                if not anchor:
+                    continue
+                matches = page.search_for(anchor)
+                if not matches:
+                    continue
+                rect = matches[0]
+                x0, y0 = rect.x0 * scale_x, rect.y0 * scale_y
+                x1, y1 = rect.x1 * scale_x, rect.y1 * scale_y
+                color = self.marker_color(item)
+                tag = f"correction-{index}"
+                self.canvas.create_rectangle(x0 - 3, y0 - 3, x1 + 3, y1 + 3, outline=color, width=3, fill=color, stipple="gray25", tags=(tag,))
+                self.canvas.create_text(x0, max(10, y0 - 10), text=f"Aufgabe {task}: {points}", anchor="sw", fill=color, font=("Segoe UI", 10, "bold"), tags=(tag,))
+                self.canvas.tag_bind(tag, "<Button-1>", lambda _event, selected=index: self.select_index(selected))
+        finally:
+            document.close()
+
+    def select_index(self, index: int) -> None:
+        self.corrections.selection_clear(0, "end")
+        self.corrections.selection_set(index)
+        self.corrections.see(index)
+        self.select_correction()
 
     def selected(self) -> tuple | None:
         selection = self.corrections.curselection()
         return self.current_tasks[selection[0]] if selection else None
+
+    def clear_editor(self) -> None:
+        self.location.configure(text="Wählen Sie eine Korrektur aus.")
+        self.points.delete(0, "end")
+        self.reason.delete("1.0", "end")
+        self.unclear.delete("1.0", "end")
 
     def select_correction(self, _event=None) -> None:
         item = self.selected()
@@ -154,15 +195,16 @@ class ReviewWindow(tk.Toplevel):
             return
         task, points, reason, uncertain = item
         page, anchor = self.anchors.get(task, (None, ""))
-        location = f"Seite {page}" if page else "Seite noch nicht bestimmt"
+        text = f"Aufgabe {task} · Seite {page or 'nicht bestimmt'}"
         if anchor:
-            location += f" · Textstelle: „{anchor}“"
-        self.anchor_label.configure(text=location)
+            text += f"\nTextstelle: „{anchor}“"
+        self.location.configure(text=text)
         self.points.delete(0, "end")
         self.points.insert(0, points)
-        for field, value in ((self.reason, reason), (self.unclear, uncertain)):
-            field.delete("1.0", "end")
-            field.insert("1.0", value)
+        self.reason.delete("1.0", "end")
+        self.reason.insert("1.0", reason)
+        self.unclear.delete("1.0", "end")
+        self.unclear.insert("1.0", uncertain)
 
     def save_correction(self) -> None:
         item = self.selected()
@@ -178,8 +220,8 @@ class ReviewWindow(tk.Toplevel):
         self.master.store.update_suggestion(self.master.scan_id, task, points, self.reason.get("1.0", "end").strip(), self.unclear.get("1.0", "end").strip())
         self.suggestions = self.master.store.suggestions(self.master.scan_id)
         self.master.show_suggestions()
-        self.show_corrections(self.page.get())
-        self._append_chat("Korrektur wurde gespeichert.\n\n")
+        self.show_page()
+        self._append_chat("Korrektur gespeichert.\n\n")
 
     def discuss(self) -> None:
         item = self.selected()
@@ -187,43 +229,30 @@ class ReviewWindow(tk.Toplevel):
         if not item or not question:
             return
         if not self.master.provider.available():
-            messagebox.showerror("Diskussion", "Codex wurde nicht gefunden.", parent=self)
+            messagebox.showerror("Chat", "Codex wurde nicht gefunden.", parent=self)
             return
         self.question.delete(0, "end")
         task, points, reason, uncertain = item
         page, anchor = self.anchors.get(task, (None, ""))
         self._append_chat(f"Sie: {question}\n\n")
-        if hasattr(self.master, "_add_chat"):
-            self.master._add_chat(f"Sie (Aufgabe {task}): {question}\n\n")
+        self.master._add_chat(f"Sie (Aufgabe {task}): {question}\n\n")
         context = json.dumps({"projekt": self.master.store.project(self.master.project_id), "korrektur": {"aufgabe": task, "punkte": points, "begruendung": reason, "unsicherheiten": uncertain, "seite": page, "textstelle": anchor}}, ensure_ascii=False)
         model_box = getattr(self.master, "model", None)
         model = None if model_box is None or model_box.get() == "Standard" else model_box.get()
         def work() -> None:
             try:
                 answer = self.master.provider.discuss(context, question, model)
-                self.after(0, lambda: self._discussion_answer(answer))
+                self.after(0, lambda: self.discussion_answer(answer))
             except Exception as exc:
-                self.after(0, lambda: messagebox.showerror("Diskussion", str(exc), parent=self))
+                self.after(0, lambda: messagebox.showerror("Chat", str(exc), parent=self))
         threading.Thread(target=work, daemon=True).start()
 
-    def _discussion_answer(self, answer: str) -> None:
+    def discussion_answer(self, answer: str) -> None:
         self._append_chat(f"Assistent: {answer}\n\n")
-        if hasattr(self.master, "_add_chat"):
-            self.master._add_chat(f"Assistent (Aufgabe): {answer}\n\n")
+        self.master._add_chat(f"Assistent (Aufgabe): {answer}\n\n")
 
     def _append_chat(self, text: str) -> None:
         self.chat.configure(state="normal")
         self.chat.insert("end", text)
         self.chat.see("end")
         self.chat.configure(state="disabled")
-
-    def export(self) -> None:
-        suggested = Path(self.ocr_path).stem + "_korrekturvorschlag.pdf"
-        destination = filedialog.asksaveasfilename(title="Kommentar-PDF speichern", initialdir=self.output_folder, initialfile=suggested, defaultextension=".pdf", filetypes=[("PDF-Dateien", "*.pdf")])
-        if not destination:
-            return
-        try:
-            export_comment_pdf(self.ocr_path, self.suggestions, self.anchors, Path(destination))
-            messagebox.showinfo("Export", "Die Seiten wurden unverändert übernommen. Korrekturhinweise sind als Kommentar-Ebene ergänzt.", parent=self)
-        except Exception as exc:
-            messagebox.showerror("Export", str(exc), parent=self)
