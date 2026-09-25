@@ -103,7 +103,8 @@ class ProjektApp(KorrekturApp):
         project = self.store.project(self.project_id)
         base = Path(__file__).resolve().parents[2] / "data" / "Projekte" / "".join(char if char.isalnum() or char in " _-" else "_" for char in project["titel"])
         base.mkdir(parents=True, exist_ok=True)
-        path = filedialog.asksaveasfilename(title="Projektdatei speichern", initialdir=base, initialfile="projekt.korrproj", defaultextension=".korrproj", filetypes=[("Korrekturprojekt", "*.korrproj")])
+        filename = "".join(char if char.isalnum() or char in " _-" else "_" for char in project["titel"]).strip() or "Klausurprojekt"
+        path = filedialog.asksaveasfilename(title="Projektdatei speichern", initialdir=base, initialfile=f"{filename}.kka", defaultextension=".kka", filetypes=[("Korrekturassistent-Projekt", "*.kka"), ("Bisheriges Korrekturprojekt", "*.korrproj")])
         if not path: return
         data = {"version": 1, "projekt": self.store.project(self.project_id), "scans": [{"pfad": row[1]} for row in self.store.scans(self.project_id)], "anhaenge": self.attachments, "chat": self.chat_log}
         Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -131,7 +132,7 @@ class ProjektApp(KorrekturApp):
         self.chat_log = []
         messagebox.showinfo("Archiv", "Abschlussbericht und Chat-Verlauf wurden im Archiv gespeichert. Der laufende Chat wurde geleert.")
     def open_project_file(self) -> None:
-        path = filedialog.askopenfilename(title="Projektdatei öffnen", filetypes=[("Korrekturprojekt", "*.korrproj")])
+        path = filedialog.askopenfilename(title="Projektdatei öffnen", filetypes=[("Korrekturassistent-Projekt", "*.kka"), ("Bisheriges Korrekturprojekt", "*.korrproj")])
         if not path: return
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         project = data["projekt"]
