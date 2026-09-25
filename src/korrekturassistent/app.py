@@ -221,10 +221,14 @@ class KorrekturApp(tk.Tk):
         if self.project_id is None: return
         if not self.provider.available():
             messagebox.showerror("Codex", "Codex wurde nicht gefunden. Melden Sie sich mit 'codex login' bei Ihrem ChatGPT-Plus-Konto an."); return
+        try:
+            project, scan, model = self.grade_payload(), self.store.scan(scan_id), self.grade_model()
+        except Exception as exc:
+            messagebox.showerror("Korrekturvorschlag", str(exc))
+            return
         self.grade_button.configure(state="disabled"); self.bulk_button.configure(state="disabled")
         self.store.update_scan_status(scan_id, "Korrektur läuft")
         self.refresh_scans(); self.result_status.configure(text="Korrekturvorschlag wird erstellt …")
-        project, scan, model = self.grade_payload(), self.store.scan(scan_id), self.grade_model()
         def work() -> None:
             try:
                 proposal = self.provider.grade(project, scan["ocr_text"], model)
@@ -258,6 +262,11 @@ class KorrekturApp(tk.Tk):
             messagebox.showinfo("Alle korrigieren", "Laden Sie zuerst mindestens eine OCR-Klausur."); return
         if not self.provider.available():
             messagebox.showerror("Codex", "Codex wurde nicht gefunden. Melden Sie sich zuerst über Codex CLI an."); return
+        try:
+            self.grade_payload()
+        except Exception as exc:
+            messagebox.showerror("Alle korrigieren", str(exc))
+            return
         self._bulk_queue = [row[0] for row in self.scan_rows]
         self._bulk_errors = []
         self._bulk_running = True

@@ -148,8 +148,13 @@ class ProjektApp(KorrekturApp):
         self.refresh_projects(); self.show_project(self.project_id)
 
     def grade_payload(self) -> dict:
+        task_text = self.attachment_text["aufgabenstellung"].strip()
+        horizon_text = self.attachment_text["erwartungshorizont"].strip()
+        if not task_text or not horizon_text:
+            raise ValueError("Für die Korrektur müssen Aufgabenstellung und Erwartungshorizont im Register ‚Klausur und Erwartungshorizont‘ verknüpft sein.")
         project = self.store.project(self.project_id)
-        project["klausurtext"] += "\n\nVerknüpfte Aufgabenstellung:\n" + self.attachment_text["aufgabenstellung"] + "\n\nVerknüpfter Erwartungshorizont:\n" + self.attachment_text["erwartungshorizont"]
+        project["aufgabenstellung"] = task_text
+        project["erwartungshorizont_text"] = horizon_text
         return project
 
     def grade_model(self) -> str | None:

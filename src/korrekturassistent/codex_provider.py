@@ -79,7 +79,7 @@ class CodexProvider:
         }
         schema = {
             "type": "object",
-            "properties": {"vorschlaege": {"type": "array", "items": suggestion_schema}},
+            "properties": {"vorschlaege": {"type": "array", "minItems": 1, "items": suggestion_schema}},
             "required": ["vorschlaege"],
             "additionalProperties": False,
         }
@@ -92,7 +92,12 @@ class CodexProvider:
             completed = subprocess.run(command, input=prompt, capture_output=True, text=True, encoding="utf-8", timeout=600, cwd=Path(__file__).resolve().parents[2], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             if completed.returncode != 0:
                 raise RuntimeError(completed.stderr.strip() or "Codex konnte keinen Korrekturvorschlag erstellen.")
-            return json.loads(output_path.read_text(encoding="utf-8"))["vorschlaege"]
+            suggestions = json.loads(output_path.read_text(encoding="utf-8"))["vorschlaege"]
+            if not suggestions:
+                raise RuntimeError("Die KI hat keine Aufgaben bewertet. Prüfen Sie Aufgabenstellung und Erwartungshorizont.")
+            if not any(float(item.get("max_punkte") or 0) > 0 for item in suggestions):
+                raise RuntimeError("Die KI hat keine maximale Punktzahl aus dem Erwartungshorizont übernommen.")
+            return suggestions
 
     def discuss(self, context: str, instruction: str, model: str | None = None) -> str:
         prompt = load_profile() + "\n\nVerfügbarer Kontext:\n" + context + "\n\nNachricht:\n" + instruction
