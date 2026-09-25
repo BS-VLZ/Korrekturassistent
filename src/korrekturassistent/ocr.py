@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-import fitz
+import pymupdf
 
 
 def extract_pdf_text(path: str) -> str:
-    document = fitz.open(Path(path))
+    document = pymupdf.open(Path(path))
     try:
         parts: list[str] = []
         for page_number, page in enumerate(document, start=1):

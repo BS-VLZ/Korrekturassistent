@@ -6,7 +6,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
 
-import fitz
+import pymupdf
 
 from .pdf_review import page_count, render_page
 
@@ -146,7 +146,7 @@ class ReviewWindow(tk.Toplevel):
         self.page.set(page_number)
         target = self.output_folder / "rendered" / f"reader-{page_number}.png"
         available_width = self.canvas.winfo_width()
-        document = fitz.open(self.ocr_path)
+        document = pymupdf.open(self.ocr_path)
         try:
             page_width = document.load_page(page_number - 1).rect.width
         finally:
@@ -203,7 +203,7 @@ class ReviewWindow(tk.Toplevel):
     def draw_markers(self, page_number: int) -> None:
         if not self.image:
             return
-        document = fitz.open(self.ocr_path)
+        document = pymupdf.open(self.ocr_path)
         try:
             page = document.load_page(page_number - 1)
             scale_x = self.image.width() / page.rect.width
