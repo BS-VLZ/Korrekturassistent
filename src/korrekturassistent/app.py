@@ -110,6 +110,9 @@ class KorrekturApp(tk.Tk):
                 messagebox.showerror("Projekt", "Bitte geben Sie einen Klausurtitel ein.", parent=dialog); return
             new_project_id = self.store.create_project(title.get().strip(), "", [])
             dialog.destroy(); self.refresh_projects(); self.show_project(new_project_id)
+            save_project = getattr(self, "save_project_file", None)
+            if callable(save_project):
+                self.after(0, save_project)
         ttk.Button(dialog, text="Projekt anlegen", command=save).pack(anchor="e", padx=12, pady=12)
 
     def delete_project(self) -> None:
