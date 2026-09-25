@@ -49,6 +49,10 @@ class ProjektStore:
                 conn.execute("ALTER TABLE vorschlag ADD COLUMN seite INTEGER")
             if "textstelle" not in columns:
                 conn.execute("ALTER TABLE vorschlag ADD COLUMN textstelle TEXT NOT NULL DEFAULT ''")
+            if "max_punkte" not in columns:
+                conn.execute("ALTER TABLE vorschlag ADD COLUMN max_punkte REAL")
+            if "kriterien_json" not in columns:
+                conn.execute("ALTER TABLE vorschlag ADD COLUMN kriterien_json TEXT NOT NULL DEFAULT '[]'")
 
     def _connect(self):
         return sqlite3.connect(self.database)
@@ -104,18 +108,30 @@ class ProjektStore:
             raise KeyError(scan_id)
         return {"id": row[0], "pfad": row[1], "ocr_text": row[2]}
 
+    def update_scan_status(self, scan_id: int, status: str) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE scan SET status = ? WHERE id = ?", (status, scan_id))
+
     def replace_suggestions(self, scan_id: int, suggestions: list[dict]) -> None:
         with self._connect() as conn:
             conn.execute("DELETE FROM vorschlag WHERE scan_id = ?", (scan_id,))
             conn.executemany(
-                "INSERT INTO vorschlag(scan_id, aufgabe, punkte, begruendung, unsicherheiten, seite, textstelle) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                [(scan_id, item["aufgabe"], item.get("punkte"), item["begruendung"], item.get("unsicherheiten", ""), item.get("seite"), item.get("textstelle", "")) for item in suggestions],
+                "INSERT INTO vorschlag(scan_id, aufgabe, punkte, max_punkte, begruendung, unsicherheiten, seite, textstelle, kriterien_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(scan_id, item["aufgabe"], item.get("punkte"), item.get("max_punkte"), item["begruendung"], item.get("unsicherheiten", ""), item.get("seite"), item.get("textstelle", ""), json.dumps(item.get("kriterien", []), ensure_ascii=False)) for item in suggestions],
             )
             conn.execute("UPDATE scan SET status = 'in Prüfung' WHERE id = ?", (scan_id,))
 
     def suggestions(self, scan_id: int) -> list[tuple]:
         with self._connect() as conn:
             return conn.execute("SELECT aufgabe, punkte, begruendung, unsicherheiten FROM vorschlag WHERE scan_id = ? ORDER BY id", (scan_id,)).fetchall()
+
+    def suggestion_details(self, scan_id: int) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT aufgabe, punkte, max_punkte, begruendung, unsicherheiten, seite, textstelle, kriterien_json FROM vorschlag WHERE scan_id = ? ORDER BY id", (scan_id,)).fetchall()
+        return [
+            {"aufgabe": row[0], "punkte": row[1], "max_punkte": row[2], "begruendung": row[3], "unsicherheiten": row[4], "seite": row[5], "textstelle": row[6], "kriterien": json.loads(row[7] or "[]")}
+            for row in rows
+        ]
 
     def suggestion_anchors(self, scan_id: int) -> dict[str, tuple[int | None, str]]:
         with self._connect() as conn:
@@ -128,5 +144,4 @@ class ProjektStore:
                 "UPDATE vorschlag SET punkte = ?, begruendung = ?, unsicherheiten = ? WHERE scan_id = ? AND aufgabe = ?",
                 (punkte, begruendung, unsicherheiten, scan_id, aufgabe),
             )
-
 

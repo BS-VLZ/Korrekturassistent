@@ -10,7 +10,9 @@ from pathlib import Path
 from .agent_profile import load_profile
 
 
-SYSTEM = """Sie sind ein fachlicher Korrekturassistent. Sie erstellen nur Vorschläge, keine endgültigen Noten. Bewerten Sie ausschließlich anhand des Erwartungshorizonts. Berücksichtigen Sie alternative fachlich richtige Formulierungen. OCR-Unklarheiten führen nicht zu einem Punktabzug, sondern zu einer Unsicherheit. Für jeden Vorschlag geben Sie die OCR-Seite und eine kurze, exakt aus der OCR übernommene Textstelle an, an der die bewertete Antwort steht. Die Textstelle darf höchstens 18 Wörter umfassen."""
+SYSTEM = """Sie sind ein fachlicher Korrekturassistent. Sie erstellen begründete Vorschläge, keine endgültigen Noten. Bewerten Sie ausschließlich anhand des Erwartungshorizonts und berücksichtigen Sie fachlich richtige Alternativen. OCR-Unklarheiten führen nicht zu einem Punktabzug, sondern zu einer Unsicherheit.
+
+Erstellen Sie zu jeder Aufgabe ein menschlich lesbares Bewertungsraster. Geben Sie die maximale Punktzahl exakt aus dem Erwartungshorizont an. Führen Sie die bewerteten Teilkriterien einzeln auf: Status erfüllt, teilweise, fehlt oder unklar; eine kurze Bezeichnung; optional eine wortwörtliche Textstelle aus der OCR. Für erfüllte oder teilweise erfüllte Kriterien muss textstelle höchstens 8 Wörter lang sein und exakt aus dem OCR-Text stammen. Für den Aufgabenanker gilt dasselbe Wortlaut-Prinzip mit höchstens 18 Wörtern. Begruendung enthält zwei bis vier kurze Absätze mit Leerzeilen, die Punkteentscheidung nachvollziehbar erklären."""
 
 
 class CodexProvider:
@@ -53,14 +55,26 @@ class CodexProvider:
             "schuelerantwort": ocr_text,
         }
         prompt = load_profile() + "\n\nSpezielle Vorgabe für Korrekturvorschläge:\n" + SYSTEM + "\n\nDaten:\n" + json.dumps(payload, ensure_ascii=False)
+        criterion_schema = {
+            "type": "object",
+            "properties": {
+                "kriterium": {"type": "string"},
+                "status": {"type": "string", "enum": ["erfüllt", "teilweise", "fehlt", "unklar"]},
+                "textstelle": {"type": "string"},
+            },
+            "required": ["kriterium", "status", "textstelle"],
+            "additionalProperties": False,
+        }
         suggestion_schema = {
             "type": "object",
             "properties": {
                 "aufgabe": {"type": "string"}, "punkte": {"type": "number"},
+                "max_punkte": {"type": "number", "minimum": 0},
                 "begruendung": {"type": "string"}, "unsicherheiten": {"type": "string"},
                 "seite": {"type": "integer", "minimum": 1}, "textstelle": {"type": "string"},
+                "kriterien": {"type": "array", "items": criterion_schema},
             },
-            "required": ["aufgabe", "punkte", "begruendung", "unsicherheiten", "seite", "textstelle"],
+            "required": ["aufgabe", "punkte", "max_punkte", "begruendung", "unsicherheiten", "seite", "textstelle", "kriterien"],
             "additionalProperties": False,
         }
         schema = {
@@ -86,10 +100,3 @@ class CodexProvider:
         if completed.returncode != 0:
             raise RuntimeError(completed.stderr.strip() or "Codex konnte die Frage nicht beantworten.")
         return completed.stdout.strip()
-
-
-
-
-
-
-

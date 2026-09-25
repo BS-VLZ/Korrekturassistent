@@ -146,21 +146,13 @@ class ProjektApp(KorrekturApp):
         for role, text in self.chat_log: self._add_chat(f"{role}: {text}\n\n", save=False)
         self.refresh_projects(); self.show_project(self.project_id)
 
-    def grade(self) -> None:
-        if self.project_id is None or self.scan_id is None:
-            messagebox.showinfo("Korrekturvorschlag", "Laden Sie zuerst eine OCR-Klausur über Datei > OCR-PDFs laden und wählen Sie sie oben aus."); return
-        self.grade_button.configure(state="disabled")
-        self.result_status.configure(text="Korrekturvorschlag wird erstellt …")
+    def grade_payload(self) -> dict:
         project = self.store.project(self.project_id)
         project["klausurtext"] += "\n\nVerknüpfte Aufgabenstellung:\n" + self.attachment_text["aufgabenstellung"] + "\n\nVerknüpfter Erwartungshorizont:\n" + self.attachment_text["erwartungshorizont"]
-        model = None if self.model.get() == "Standard" else self.model.get()
-        def work() -> None:
-            try:
-                proposal = self.provider.grade(project, self.store.scan(self.scan_id)["ocr_text"], model)
-                self.store.replace_suggestions(self.scan_id, proposal); self.after(0, self._graded)
-            except Exception as exc: self.after(0, self._error, "Korrekturvorschlag", str(exc))
-        threading.Thread(target=work, daemon=True).start()
+        return project
 
+    def grade_model(self) -> str | None:
+        return None if self.model.get() == "Standard" else self.model.get()
     def _add_chat(self, text: str, save: bool = True) -> None:
         if save and ": " in text:
             role, body = text.strip().split(": ", 1)
@@ -172,12 +164,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
