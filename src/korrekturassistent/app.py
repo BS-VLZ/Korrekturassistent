@@ -75,6 +75,7 @@ class KorrekturApp(tk.Tk):
         self.grade_button.pack(side="left")
         self.bulk_button = ttk.Button(controls, text="Alle Klausuren korrigieren", command=self.grade_all)
         self.bulk_button.pack(side="left", padx=(8, 0))
+        ttk.Button(controls, text="Ausgewählte Klausur löschen", command=self.delete_scan).pack(side="left", padx=(8, 0))
         ttk.Button(controls, text="Ähnlichkeit prüfen", command=self.show_similarity_hints).pack(side="left", padx=(8, 0))
         self.review_button = ttk.Button(controls, text="✎ Korrekturarbeitsplatz öffnen", command=self.open_review)
         self.review_button.pack(side="left", padx=(8, 0))
