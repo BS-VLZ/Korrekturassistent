@@ -84,10 +84,10 @@ class KorrekturApp(tk.Tk):
         ttk.Label(self.suggestion_tab, text="Wählen Sie eine Klausur. Der Rotstift öffnet ihre PDF-Ansicht mit allen Korrekturhinweisen. Mehrere Arbeitsplätze können gleichzeitig geöffnet bleiben.", wraplength=1050).pack(anchor="w", pady=(0, 7))
         table_frame = ttk.Frame(self.suggestion_tab)
         table_frame.pack(fill="both", expand=True)
-        columns = ("klausur", "status", "punkte", "note", "rotstift")
+        columns = ("nummer", "klausur", "status", "punkte", "note", "rotstift")
         self.scan_table = ttk.Treeview(table_frame, columns=columns, show="headings", selectmode="browse")
-        headings = {"klausur": "Klausur", "status": "Status", "punkte": "Punkte", "note": "Vorläufige Note", "rotstift": "Korrektur"}
-        widths = {"klausur": 420, "status": 130, "punkte": 145, "note": 190, "rotstift": 180}
+        headings = {"nummer": "Nr.", "klausur": "Klausur", "status": "Status", "punkte": "Punkte", "note": "Vorläufige Note", "rotstift": "Korrektur"}
+        widths = {"nummer": 55, "klausur": 380, "status": 130, "punkte": 145, "note": 190, "rotstift": 180}
         for key in columns:
             self.scan_table.heading(key, text=headings[key])
             self.scan_table.column(key, width=widths[key], anchor="w")
@@ -162,9 +162,9 @@ class KorrekturApp(tk.Tk):
         if not hasattr(self, "scan_table"): return
         selected = str(self.scan_id) if self.scan_id else ""
         self.scan_table.delete(*self.scan_table.get_children())
-        for scan_id, path, status in self.scan_rows:
+        for number, (scan_id, path, status) in enumerate(self.scan_rows, start=1):
             points, note = self._result_text(scan_id)
-            self.scan_table.insert("", "end", iid=str(scan_id), values=(Path(path).name, status, points, note, "✎ Öffnen"), tags=("review",))
+            self.scan_table.insert("", "end", iid=str(scan_id), values=(number, Path(path).name, status, points, note, "✎ Öffnen"), tags=("review",))
         if selected and self.scan_table.exists(selected):
             self.scan_table.selection_set(selected); self.scan_table.focus(selected)
 
@@ -177,7 +177,7 @@ class KorrekturApp(tk.Tk):
         row = self.scan_table.identify_row(event.y)
         if not row: return
         self.scan_table.selection_set(row); self.scan_id = int(row)
-        if self.scan_table.identify_column(event.x) == "#5": self.open_review()
+        if self.scan_table.identify_column(event.x) == "#6": self.open_review()
 
     def select_scan(self, _event=None) -> None:
         choice = self.scans.curselection()
