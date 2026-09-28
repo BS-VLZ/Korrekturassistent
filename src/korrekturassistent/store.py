@@ -88,6 +88,9 @@ class ProjektStore:
             raise KeyError(project_id)
         return {"id": row[0], "titel": row[1], "klausurtext": row[2], "aufgaben": json.loads(row[3]), "anhaenge": json.loads(row[4] or "{}")}
 
+    def update_tasks(self, project_id: int, tasks: list[dict]) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE projekt SET aufgaben_json = ? WHERE id = ?", (json.dumps(tasks, ensure_ascii=False), project_id))
     def update_attachments(self, project_id: int, attachments: dict[str, str]) -> None:
         with self._connect() as conn:
             conn.execute("UPDATE projekt SET anhaenge_json = ? WHERE id = ?", (json.dumps(attachments, ensure_ascii=False), project_id))

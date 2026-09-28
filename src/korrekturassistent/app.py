@@ -227,10 +227,16 @@ class KorrekturApp(tk.Tk):
             messagebox.showerror("Korrekturvorschlag", str(exc))
             return
         self.grade_button.configure(state="disabled"); self.bulk_button.configure(state="disabled")
-        self.store.update_scan_status(scan_id, "Korrektur läuft")
-        self.refresh_scans(); self.result_status.configure(text="Korrekturvorschlag wird erstellt …")
+        self.store.update_scan_status(scan_id, "EWH wird geprüft")
+        self.refresh_scans(); self.result_status.configure(text="Aufgabenstellung und Erwartungshorizont werden geprüft …")
+        project_id = self.project_id
         def work() -> None:
             try:
+                rubric = self.provider.prepare_rubric(project["aufgabenstellung"], project["erwartungshorizont_text"], model)
+                project["aufgaben"] = rubric
+                self.store.update_tasks(project_id, rubric)
+                self.store.update_scan_status(scan_id, "Korrektur läuft")
+                self.after(0, lambda: self.result_status.configure(text="Korrekturvorschlag wird erstellt …"))
                 proposal = self.provider.grade(project, scan["ocr_text"], model)
                 self.store.replace_suggestions(scan_id, proposal)
                 self.after(0, lambda: self._grade_finished(scan_id, open_after, done))
