@@ -46,7 +46,7 @@ class ProjektApp(KorrekturApp):
         dialog.title("KI-Modell")
         dialog.geometry("360x150")
         ttk.Label(dialog, text="Modell für Korrektur und Diskussion").pack(anchor="w", padx=12, pady=(14, 5))
-        choice = ttk.Combobox(dialog, state="readonly", values=("Standard", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.6-luna"), textvariable=self.model, width=24)
+        choice = ttk.Combobox(dialog, state="readonly", values=("Standard", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.5", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.6-luna"), textvariable=self.model, width=24)
         choice.pack(anchor="w", padx=12)
         ttk.Button(dialog, text="Übernehmen", command=dialog.destroy).pack(anchor="e", padx=12, pady=14)
 
