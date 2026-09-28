@@ -14,10 +14,11 @@ from .pdf_review import page_count, render_page
 class ReviewWindow(tk.Toplevel):
     """PDF-Korrekturarbeitsplatz mit Bewertungsraster und aufgabenbezogenem Chat."""
 
-    def __init__(self, master, ocr_path: str, suggestions: list[dict], output_folder: Path) -> None:
+    def __init__(self, master, scan_id: int, ocr_path: str, suggestions: list[dict], output_folder: Path) -> None:
         super().__init__(master)
         self.title("Korrekturarbeitsplatz")
         self.geometry("1540x960")
+        self.scan_id = scan_id
         self.ocr_path = ocr_path
         self.suggestions = suggestions
         self.output_folder = output_folder
@@ -338,8 +339,9 @@ class ReviewWindow(tk.Toplevel):
         except ValueError:
             messagebox.showerror("Korrektur", "Bitte geben Sie eine gültige Punktzahl ein.", parent=self)
             return
-        self.master.store.update_suggestion(self.master.scan_id, item["aufgabe"], points, self.reason.get("1.0", "end").strip(), self.unclear.get("1.0", "end").strip())
-        self.suggestions = self.master.store.suggestion_details(self.master.scan_id)
+        self.master.store.update_suggestion(self.scan_id, item["aufgabe"], points, self.reason.get("1.0", "end").strip(), self.unclear.get("1.0", "end").strip())
+        self.suggestions = self.master.store.suggestion_details(self.scan_id)
+        self.master.refresh_scans()
         self.master.show_suggestions()
         self.show_page()
         self._append_chat("Korrektur gespeichert.\n\n")

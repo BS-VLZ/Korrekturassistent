@@ -205,7 +205,7 @@ class KorrekturApp(tk.Tk):
         scan = self.store.scan(self.scan_id)
         if not self.store.suggestion_details(self.scan_id):
             messagebox.showinfo("Korrekturarbeitsplatz", "Erzeugen Sie zuerst einen Korrekturvorschlag für diese Klausur."); return
-        ReviewWindow(self, scan["pfad"], self.store.suggestion_details(self.scan_id), Path(__file__).resolve().parents[2] / "data")
+        ReviewWindow(self, self.scan_id, scan["pfad"], self.store.suggestion_details(self.scan_id), Path(__file__).resolve().parents[2] / "data")
 
     def grade_payload(self) -> dict:
         return self.store.project(self.project_id)
