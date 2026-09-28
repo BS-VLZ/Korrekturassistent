@@ -235,7 +235,8 @@ class KorrekturApp(tk.Tk):
                 self.store.replace_suggestions(scan_id, proposal)
                 self.after(0, lambda: self._grade_finished(scan_id, open_after, done))
             except Exception as exc:
-                self.after(0, lambda: self._grade_failed(scan_id, str(exc), done))
+                detail = str(exc)
+                self.after(0, lambda: self._grade_failed(scan_id, detail, done))
         threading.Thread(target=work, daemon=True).start()
 
     def _grade_finished(self, scan_id: int, open_after: bool, done) -> None:
