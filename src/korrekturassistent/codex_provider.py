@@ -12,7 +12,7 @@ from .agent_profile import load_profile
 
 SYSTEM = """Sie sind ein fachlicher Korrekturassistent. Sie erstellen begründete Vorschläge, keine endgültigen Noten. Bewerten Sie ausschließlich anhand des vorgegebenen Bewertungsrasters und berücksichtigen Sie fachlich richtige Alternativen. OCR-Unklarheiten führen nicht zu einem Punktabzug, sondern zu einer Unsicherheit.
 
-Bewerten Sie jede Aufgabe des Bewertungsrasters genau einmal. Übernehmen Sie die maximale Punktzahl exakt aus dem Raster. Führen Sie die bewerteten Teilkriterien einzeln auf: Status erfüllt, teilweise, fehlt oder unklar; eine kurze Bezeichnung; optional eine wortwörtliche Textstelle aus der OCR. Für erfüllte oder teilweise erfüllte Kriterien muss textstelle höchstens 8 Wörter lang sein und exakt aus dem OCR-Text stammen. Für den Aufgabenanker gilt dasselbe Wortlaut-Prinzip mit höchstens 18 Wörtern. Begruendung enthält zwei bis vier kurze Absätze mit Leerzeilen, die Punkteentscheidung nachvollziehbar erklären."""
+Bewerten Sie jede Aufgabe des Bewertungsrasters genau einmal. Übernehmen Sie die maximale Punktzahl exakt aus dem Raster. Bewerten Sie inhaltlich, nicht nach bloßem Wortlaut: Konkrete, sinngleiche Schülerformulierungen zählen als erfüllt, wenn sie einen Aspekt des Erwartungshorizonts fachlich treffen. Beispiel: „Beteiligung im Angebot“ kann den Grad der Selbstständigkeit und Verantwortungsübernahme der Gruppe belegen. Führen Sie die bewerteten Teilkriterien einzeln auf: Status erfüllt, teilweise, fehlt oder unklar; eine kurze Bezeichnung; optional eine wortwörtliche Textstelle aus der OCR. Für erfüllte oder teilweise erfüllte Kriterien muss textstelle höchstens 8 Wörter lang sein und exakt aus dem OCR-Text stammen. Für den Aufgabenanker gilt dasselbe Wortlaut-Prinzip mit höchstens 18 Wörtern. Begruendung enthält zwei bis vier kurze Absätze mit Leerzeilen, die Punkteentscheidung nachvollziehbar erklären."""
 
 
 class CodexProvider:
@@ -76,7 +76,7 @@ class CodexProvider:
         }
         prompt = (
             "Prüfen Sie Aufgabenstellung und Erwartungshorizont für eine spätere Klausurkorrektur. "
-            "Erstellen Sie eine vollständige Liste aller bewertbaren Aufgaben. Jede Aufgabe muss ihre maximale Punktzahl "
+            "Erstellen Sie eine vollständige Liste aller bewertbaren Aufgaben. Übernehmen Sie alle im Erwartungshorizont genannten möglichen Inhalte als zulässige Aspekte; kürzen oder streichen Sie keine Alternativen. Jede Aufgabe muss ihre maximale Punktzahl "
             "exakt aus dem Erwartungshorizont übernehmen. Erfinden Sie keine Punkte. Wenn keine Maximalpunkte eindeutig "
             "erkennbar sind, liefern Sie keine Aufgabenliste.\n\nAufgabenstellung:\n" + task_text +
             "\n\nErwartungshorizont:\n" + horizon_text
