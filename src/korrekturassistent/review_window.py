@@ -231,20 +231,26 @@ class ReviewWindow(tk.Toplevel):
         self.canvas.tag_bind(tag, "<Button-1>", lambda _event, selected=index: self.select_index(selected))
 
     def draw_criterion_markers(self, index: int, item: dict, page, scale_x: float, scale_y: float) -> None:
+        """Zeigt jeden gefundenen Einzelaspekt, nicht nur den Hauptanker der Aufgabe."""
+        styles = {
+            "erfüllt": ("✓", "#137333", "green"),
+            "teilweise": ("~", "#b36b00", "yellow"),
+            "unklar": ("?", "#b36b00", "yellow"),
+        }
         for criterion in item.get("kriterien", []):
             status = criterion.get("status")
-            if status not in ("erfüllt", "teilweise"):
+            if status not in styles:
                 continue
-            rect, state = self.find_anchor_rect(page, criterion.get("textstelle", ""))
+            rect, _state = self.find_anchor_rect(page, criterion.get("textstelle", ""))
             if rect is None:
                 continue
-            x = rect.x0 * scale_x - 8
-            y = rect.y0 * scale_y + 4
-            symbol, color = ("✓", "#137333") if status == "erfüllt" else ("~", "#b36b00")
-            tag = f"criterion-{index}"
-            self.canvas.create_text(x, y, text=symbol, anchor="e", fill=color, font=("Segoe UI", 13, "bold"), tags=(tag,))
+            symbol, color, fill = styles[status]
+            x0, y0 = rect.x0 * scale_x, rect.y0 * scale_y
+            x1, y1 = rect.x1 * scale_x, rect.y1 * scale_y
+            tag = f"criterion-{index}-{status}"
+            self.canvas.create_rectangle(x0 - 2, y0 - 2, x1 + 2, y1 + 2, outline=color, width=2, fill=fill, stipple="gray25", tags=(tag,))
+            self.canvas.create_text(x0 - 7, y0 + 4, text=symbol, anchor="e", fill=color, font=("Segoe UI", 13, "bold"), tags=(tag,))
             self.canvas.tag_bind(tag, "<Button-1>", lambda _event, selected=index: self.select_index(selected))
-
     @staticmethod
     def find_anchor_rect(page, anchor: str):
         words = anchor.replace("#", " ").split()
